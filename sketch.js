@@ -1,258 +1,326 @@
-// --- CONFIGURATION ---
-const N = 200;
-const SCALE = 3;
-const iter = 4;
+// ===== SIMULATION CONFIGURATION =====
+const GRID_SIZE = 200;
+const CELL_SCALE = 3;
+const SOLVER_ITERATIONS = 4;
 
-let fluid;
-let fluidImg;
+let fluidSimulation;
+let renderBuffer;
 
-// --- SETTINGS ---
-let settings = {
-    // Physics
+// ===== SIMULATION PARAMETERS =====
+const parameters = {
+    // Fluid physics properties
     viscosity: 0.0000001,
     diffusion: 0.0000,
     dyeAmount: 250,
-    force: 0.5,
+    mouseForce: 0.5,
     
-    // Fire Physics
+    // Fire-specific physics
     buoyancy: 0.0,
-    cooling: 0.99,
-    turbulence: 0.5,
+    coolingRate: 0.99,
+    turbulenceStrength: 0.5,
     
-    // Interaction
-    brushSize: 3,
+    // User interaction
+    brushRadius: 3,
     
-    // Modes
-    fireMode: false,
+    // Simulation modes
+    isFireMode: false,
     
-    // Visuals
-    color: [200, 100, 255], // Changed to RGB format [R, G, B]
-    showVelocity: false,
-    vectorScale: 10,
+    // Visual settings
+    fluidColor: [200, 100, 255],
+    showVelocityVectors: false,
+    velocityVectorScale: 10,
     
-    clear: function() {
-        fluid = new Fluid(0.2, 0, 0.0000001);
+    // Utility functions
+    resetSimulation: function() {
+        fluidSimulation = new Fluid(0.2, 0, 0.0000001);
     }
 };
 
 function setup() {
-    let canvasSize = N * SCALE;
+    const canvasSize = GRID_SIZE * CELL_SCALE;
     createCanvas(canvasSize, canvasSize);
     noStroke();
     frameRate(60);
     
-    // REMOVED HSB MODE - keep it in default RGB for dat.GUI compatibility
-    // colorMode(HSB, 360, 100, 100);
-
-    fluid = new Fluid(0.2, settings.diffusion, settings.viscosity);
-    fluidImg = createImage(N, N); 
-
-    // --- GUI ---
-    let gui = new dat.GUI();
+    fluidSimulation = new Fluid(0.2, parameters.diffusion, parameters.viscosity);
+    renderBuffer = createImage(GRID_SIZE, GRID_SIZE);
     
-    // 1. Behavior Folder
-    let f1 = gui.addFolder('Behavior');
-    f1.add(settings, 'fireMode').name("🔥 Fire Mode").onChange(updateSimulationMode);
-    
-    f1.add(settings, 'buoyancy', 0, 0.10).name("Buoyancy").listen(); 
-    f1.add(settings, 'cooling', 0.80, 1.0).name("Cooling").listen();
-    f1.add(settings, 'turbulence', 0, 2.0).name("Wind/Chaos");
-    f1.open();
-
-    // 2. Interaction Folder
-    let f2 = gui.addFolder('Interaction');
-    f2.add(settings, 'dyeAmount', 100, 1000).name("Ink Amount");
-    f2.add(settings, 'brushSize', 1, 10).name("Brush Size").step(1);
-    f2.add(settings, 'force', 0.1, 3.0).name("Mouse Force");
-    f2.open();
-
-    // 3. Visuals Folder
-    let f3 = gui.addFolder('Visuals');
-    f3.addColor(settings, 'color').name("Fluid Color");
-    f3.add(settings, 'showVelocity').name("Show Vectors");
-    f3.add(settings, 'vectorScale', 0, 100).name("Arrow Size").listen(); 
-    
-    gui.add(settings, 'clear').name("Reset Fluid");
+    initializeGUI();
 }
 
-function updateSimulationMode() {
-    if (settings.fireMode) {
-        // FIRE PRESET
-        settings.buoyancy = 0.08;
-        settings.cooling = 0.90;
-        settings.vectorScale = 10;
-        settings.turbulence = 1.0;
+let gui; // Make GUI accessible globally for updates
+
+function initializeGUI() {
+    gui = new dat.GUI();
+    
+    // Behavior controls
+    const behaviorFolder = gui.addFolder('Behavior');
+    behaviorFolder.add(parameters, 'isFireMode')
+        .name("🔥 Fire Mode")
+        .onChange(switchSimulationMode);
+    behaviorFolder.add(parameters, 'buoyancy', 0, 0.10)
+        .name("Buoyancy")
+        .step(0.001)
+        .listen();
+    behaviorFolder.add(parameters, 'coolingRate', 0.80, 1.0)
+        .name("Cooling")
+        .step(0.01)
+        .listen();
+    behaviorFolder.add(parameters, 'turbulenceStrength', 0, 2.0)
+        .name("Wind/Chaos")
+        .step(0.1);
+    behaviorFolder.open();
+
+    // Interaction controls
+    const interactionFolder = gui.addFolder('Interaction');
+    interactionFolder.add(parameters, 'dyeAmount', 100, 1000)
+        .name("Ink Amount");
+    interactionFolder.add(parameters, 'brushRadius', 1, 10)
+        .name("Brush Size")
+        .step(1);
+    interactionFolder.add(parameters, 'mouseForce', 0.1, 3.0)
+        .name("Mouse Force");
+    interactionFolder.open();
+
+    // Visual controls
+    const visualFolder = gui.addFolder('Visuals');
+    visualFolder.addColor(parameters, 'fluidColor')
+        .name("Fluid Color");
+    visualFolder.add(parameters, 'showVelocityVectors')
+        .name("Show Vectors");
+    visualFolder.add(parameters, 'velocityVectorScale', 0, 100)
+        .name("Arrow Size")
+        .listen();
+    
+    gui.add(parameters, 'resetSimulation').name("Reset Fluid");
+}
+
+function switchSimulationMode() {
+    if (parameters.isFireMode) {
+        // Fire mode: hot, fast-moving, chaotic
+        parameters.buoyancy = 0.08;
+        parameters.coolingRate = 0.90;
+        parameters.velocityVectorScale = 10;
+        parameters.turbulenceStrength = 1.0;
     } else {
-        // FLUID PRESET
-        settings.buoyancy = 0.0;
-        settings.cooling = 0.99;
-        settings.vectorScale = 50;
-        settings.turbulence = 0.0; // Fixed: was 0.5, should be 0.0 for fluid mode
+        // Fluid mode: calm, lingering, smooth
+        parameters.buoyancy = 0.0;
+        parameters.coolingRate = 0.99;
+        parameters.velocityVectorScale = 50;
+        parameters.turbulenceStrength = 0.0;
     }
+    
+    // Force GUI to update all controllers in all folders
+    gui.__folders.Behavior.__controllers.forEach(controller => {
+        controller.updateDisplay();
+    });
+    gui.__folders.Visuals.__controllers.forEach(controller => {
+        controller.updateDisplay();
+    });
 }
 
 function draw() {
     background(0);
-
-    // 1. SYNC SETTINGS TO ENGINE
-    fluid.visc = settings.viscosity;
-    fluid.diff = settings.diffusion;
-    fluid.buoyancy = settings.buoyancy;
-    fluid.cooling = settings.cooling;
-
-    // 2. FIRE TURBULENCE
-    if (settings.turbulence > 0) {
-        addFireTurbulence();
-    }
-
-    // 3. INTERACTION & STEP
-    handleMouse();
-    fluid.step();
-
-    // 4. RENDER FLUID
-    renderFluid();
-
-    // 5. RENDER VECTORS
-    if (settings.showVelocity) {
-        renderVelocityVectors();
+    
+    syncParametersToSimulation();
+    
+    if (parameters.turbulenceStrength > 0) {
+        applyTurbulence();
     }
     
-    fill(255);
-    text("FPS: " + floor(frameRate()), 10, 20);
-}
-
-function handleMouse() {
-    if (mouseIsPressed) {
-        let centerX = floor(mouseX / SCALE);
-        let centerY = floor(mouseY / SCALE);
-        
-        let radius = settings.brushSize;
-
-        for (let i = -radius; i <= radius; i++) {
-            for (let j = -radius; j <= radius; j++) {
-                let x = centerX + i;
-                let y = centerY + j;
-
-                if (x > 0 && x < N - 1 && y > 0 && y < N - 1) {
-                    if (i*i + j*j <= radius*radius) {
-                        
-                        let noiseAmt = random(0.5, 1.5);
-                        
-                        // A. Add Visuals (Dye)
-                        fluid.addDensity(x, y, settings.dyeAmount * noiseAmt);
-                        
-                        // B. Add Physics (Heat)
-                        if (settings.buoyancy > 0) {
-                            fluid.addTemperature(x, y, 50 * noiseAmt);
-                        }
-
-                        // C. Add Motion (Velocity)
-                        let amtX = movedX * settings.force;
-                        let amtY = movedY * settings.force;
-                        
-                        if (settings.buoyancy > 0) {
-                            let wiggle = random(-1, 1);
-                            fluid.addVelocity(x, y, wiggle, -1);
-                        }
-
-                        fluid.addVelocity(x, y, amtX, amtY);
-                    }
-                }
-            }
-        }
-    }
-}
-
-function addFireTurbulence() {
-    let t = frameCount * 0.01;
-    for (let j = 1; j < N - 1; j++) {
-        for (let i = 1; i < N - 1; i++) {
-            let index = IX(i, j);
-            if (fluid.density[index] > 10) {
-                let noiseVal = (noise(i * 0.1, j * 0.1, t) - 0.5); 
-                fluid.Vx[index] += noiseVal * settings.turbulence;
-            }
-        }
-    }
-}
-
-function renderFluid() {
-    fluidImg.loadPixels();
+    processMouseInput();
+    fluidSimulation.step();
     
-    // FIXED: dat.GUI returns RGB array [r, g, b], use directly
-    let rBase = settings.color[0];
-    let gBase = settings.color[1];
-    let bBase = settings.color[2];
+    renderFluidDensity();
+    
+    if (parameters.showVelocityVectors) {
+        renderVelocityField();
+    }
+    
+    displayFrameRate();
+}
 
-    for (let i = 0; i < N; i++) {
-        for (let j = 0; j < N; j++) {
-            let d = fluid.density[IX(i, j)];
-            let index = 4 * (i + j * N);
+function syncParametersToSimulation() {
+    fluidSimulation.viscosity = parameters.viscosity;
+    fluidSimulation.diffusion = parameters.diffusion;
+    fluidSimulation.buoyancy = parameters.buoyancy;
+    fluidSimulation.coolingRate = parameters.coolingRate;
+}
+
+function processMouseInput() {
+    if (!mouseIsPressed) return;
+    
+    const gridX = floor(mouseX / CELL_SCALE);
+    const gridY = floor(mouseY / CELL_SCALE);
+    const radius = parameters.brushRadius;
+    
+    // Apply forces in a circular brush pattern
+    for (let offsetX = -radius; offsetX <= radius; offsetX++) {
+        for (let offsetY = -radius; offsetY <= radius; offsetY++) {
+            const cellX = gridX + offsetX;
+            const cellY = gridY + offsetY;
             
-            if (d > 5) {
-                if (settings.fireMode) {
-                    // --- FIRE MODE ---
-                    let r, g, b;
-                    if (d > 200) { r=255; g=255; b=(d-200)*5; } 
-                    else if (d > 100) { r=255; g=(d-100)*2.5; b=0; } 
-                    else { r=d*2.5; g=d*0.5; b=0; } 
+            // Check grid bounds and circular shape
+            const isInsideGrid = cellX > 0 && cellX < GRID_SIZE - 1 && 
+                                cellY > 0 && cellY < GRID_SIZE - 1;
+            const isInsideCircle = offsetX * offsetX + offsetY * offsetY <= radius * radius;
+            
+            if (isInsideGrid && isInsideCircle) {
+                const intensityVariation = random(0.5, 1.5);
+                
+                // Add visual dye/smoke
+                fluidSimulation.addDensity(
+                    cellX, 
+                    cellY, 
+                    parameters.dyeAmount * intensityVariation
+                );
+                
+                // Add heat (only in fire mode)
+                if (parameters.buoyancy > 0) {
+                    fluidSimulation.addTemperature(
+                        cellX, 
+                        cellY, 
+                        50 * intensityVariation
+                    );
+                }
+                
+                // Add velocity based on mouse movement
+                const velocityX = movedX * parameters.mouseForce;
+                const velocityY = movedY * parameters.mouseForce;
+                
+                // Add upward push for fire
+                if (parameters.buoyancy > 0) {
+                    const horizontalWiggle = random(-1, 1);
+                    fluidSimulation.addVelocity(cellX, cellY, horizontalWiggle, -1);
+                }
+                
+                fluidSimulation.addVelocity(cellX, cellY, velocityX, velocityY);
+            }
+        }
+    }
+}
+
+function applyTurbulence() {
+    const timeOffset = frameCount * 0.01;
+    
+    for (let y = 1; y < GRID_SIZE - 1; y++) {
+        for (let x = 1; x < GRID_SIZE - 1; x++) {
+            const index = getGridIndex(x, y);
+            
+            // Only apply wind to areas with existing density
+            if (fluidSimulation.density[index] > 10) {
+                const noiseValue = (noise(x * 0.1, y * 0.1, timeOffset) - 0.5);
+                fluidSimulation.horizontalVelocity[index] += 
+                    noiseValue * parameters.turbulenceStrength;
+            }
+        }
+    }
+}
+
+function renderFluidDensity() {
+    renderBuffer.loadPixels();
+    
+    const redChannel = parameters.fluidColor[0];
+    const greenChannel = parameters.fluidColor[1];
+    const blueChannel = parameters.fluidColor[2];
+    
+    for (let x = 0; x < GRID_SIZE; x++) {
+        for (let y = 0; y < GRID_SIZE; y++) {
+            const densityValue = fluidSimulation.density[getGridIndex(x, y)];
+            const pixelIndex = 4 * (x + y * GRID_SIZE);
+            
+            if (densityValue > 5) {
+                if (parameters.isFireMode) {
+                    // Fire has dynamic color based on temperature
+                    let red, green, blue;
                     
-                    fluidImg.pixels[index] = r;
-                    fluidImg.pixels[index + 1] = g;
-                    fluidImg.pixels[index + 2] = b;
-                    fluidImg.pixels[index + 3] = 255;
+                    if (densityValue > 200) {
+                        // White-hot core
+                        red = 255;
+                        green = 255;
+                        blue = (densityValue - 200) * 5;
+                    } else if (densityValue > 100) {
+                        // Yellow-orange flames
+                        red = 255;
+                        green = (densityValue - 100) * 2.5;
+                        blue = 0;
+                    } else {
+                        // Red embers
+                        red = densityValue * 2.5;
+                        green = densityValue * 0.5;
+                        blue = 0;
+                    }
                     
+                    renderBuffer.pixels[pixelIndex] = red;
+                    renderBuffer.pixels[pixelIndex + 1] = green;
+                    renderBuffer.pixels[pixelIndex + 2] = blue;
+                    renderBuffer.pixels[pixelIndex + 3] = 255;
                 } else {
-                    // --- FLUID MODE (User Color) ---
-                    // Use RGB values directly from dat.GUI
-                    fluidImg.pixels[index]     = rBase;
-                    fluidImg.pixels[index + 1] = gBase;
-                    fluidImg.pixels[index + 2] = bBase;
-                    
-                    // Alpha mapping
-                    fluidImg.pixels[index + 3] = constrain(d * 3, 0, 255); 
+                    // Fluid mode uses user-selected color with density-based opacity
+                    renderBuffer.pixels[pixelIndex] = redChannel;
+                    renderBuffer.pixels[pixelIndex + 1] = greenChannel;
+                    renderBuffer.pixels[pixelIndex + 2] = blueChannel;
+                    renderBuffer.pixels[pixelIndex + 3] = constrain(densityValue * 3, 0, 255);
                 }
             } else {
-                fluidImg.pixels[index + 3] = 0;
+                // Transparent for low density areas
+                renderBuffer.pixels[pixelIndex + 3] = 0;
             }
         }
     }
-    fluidImg.updatePixels();
-    image(fluidImg, 0, 0, width, height);
+    
+    renderBuffer.updatePixels();
+    image(renderBuffer, 0, 0, width, height);
 }
 
-function renderVelocityVectors() {
-    let step = 10;
+function renderVelocityField() {
+    const samplingStep = 10;
+    
     stroke(255, 150);
     strokeWeight(1);
     noFill();
-    for (let i = 0; i < N; i += step) {
-        for (let j = 0; j < N; j += step) {
-            let x = i * SCALE;
-            let y = j * SCALE;
-            let index = IX(i, j);
-            let vx = fluid.Vx[index];
-            let vy = fluid.Vy[index];
-            let len = Math.sqrt(vx*vx + vy*vy) * settings.vectorScale;
+    
+    for (let x = 0; x < GRID_SIZE; x += samplingStep) {
+        for (let y = 0; y < GRID_SIZE; y += samplingStep) {
+            const screenX = x * CELL_SCALE;
+            const screenY = y * CELL_SCALE;
+            const index = getGridIndex(x, y);
             
-            if (len > 1) {
-                len = constrain(len, 2, 40);
-                let angle = atan2(vy, vx);
+            const velocityX = fluidSimulation.horizontalVelocity[index];
+            const velocityY = fluidSimulation.verticalVelocity[index];
+            const magnitude = Math.sqrt(velocityX * velocityX + velocityY * velocityY);
+            const scaledLength = magnitude * parameters.velocityVectorScale;
+            
+            if (scaledLength > 1) {
+                const arrowLength = constrain(scaledLength, 2, 40);
+                const angle = atan2(velocityY, velocityX);
+                const arrowheadSize = 3;
+                
                 push();
-                translate(x, y);
+                translate(screenX, screenY);
                 rotate(angle);
-                line(0, 0, len, 0);
-                let arrowSize = 3;
-                line(len, 0, len - arrowSize, -arrowSize);
-                line(len, 0, len - arrowSize, arrowSize);
+                
+                // Draw arrow shaft
+                line(0, 0, arrowLength, 0);
+                
+                // Draw arrowhead
+                line(arrowLength, 0, arrowLength - arrowheadSize, -arrowheadSize);
+                line(arrowLength, 0, arrowLength - arrowheadSize, arrowheadSize);
+                
                 pop();
             }
         }
     }
 }
 
-function IX(x, y) {
-    x = constrain(x, 0, N + 1);
-    y = constrain(y, 0, N + 1);
-    return x + (N + 2) * y;
+function displayFrameRate() {
+    fill(255);
+    noStroke();
+    text("FPS: " + floor(frameRate()), 10, 20);
+}
+
+function getGridIndex(x, y) {
+    x = constrain(x, 0, GRID_SIZE + 1);
+    y = constrain(y, 0, GRID_SIZE + 1);
+    return x + (GRID_SIZE + 2) * y;
 }
