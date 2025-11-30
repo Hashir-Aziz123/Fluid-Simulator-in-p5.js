@@ -1,7 +1,6 @@
 /**
  * Fluid simulation using Jos Stam's stable fluids algorithm.
  * Simulates incompressible fluid flow with density, temperature, and velocity fields.
- * Includes Vorticity Confinement for realistic turbulent fire motion.
  */
 class Fluid {
     constructor(timeStep, diffusionRate, viscosity) {
@@ -14,10 +13,8 @@ class Fluid {
         this.coolingRate = 0.99;
         this.velocityDamping = 0.99;
         this.densityFade = 0.995;
-        this.turbulenceStrength = 0.0; // Added for Vorticity Confinement strength
         
-        // GRID_SIZE + 2 for the 1-cell padding around the simulation grid
-        this.gridSize = (GRID_SIZE + 2) * (GRID_SIZE + 2); 
+        this.gridSize = (GRID_SIZE + 2) * (GRID_SIZE + 2);
         
         // Density field (visual representation: smoke/dye/ink)
         this.previousDensity = new Float32Array(this.gridSize);
@@ -32,85 +29,52 @@ class Fluid {
         this.verticalVelocity = new Float32Array(this.gridSize);
         this.previousHorizontalVelocity = new Float32Array(this.gridSize);
         this.previousVerticalVelocity = new Float32Array(this.gridSize);
-
-        // Vorticity fields for turbulence calculation
-        this.vorticity = new Float32Array(this.gridSize); 
-        this.curlForceX = new Float32Array(this.gridSize);
-        this.curlForceY = new Float32Array(this.gridSize);
     }
     
     /**
      * Advances the simulation by one time step.
+     * Order of operations matters for stability.
      */
     step() {
-        // --- 1. Forces and Velocity Diffusion ---
+        // 1. Solve temperature diffusion and advection
+        this.diffuseField(0, this.previousTemperature, this.temperature, this.diffusion);
+        this.advectField(0, this.temperature, this.previousTemperature, 
+                        this.horizontalVelocity, this.verticalVelocity);
         
-        // Vprev = V
-        this.previousHorizontalVelocity.set(this.horizontalVelocity);
-        this.previousVerticalVelocity.set(this.verticalVelocity);
-
-        // Apply Buoyancy forces (hot air rises)
-        if (this.buoyancy !== 0) {
+        // 2. Apply buoyancy forces (hot air rises)
+        if (this.buoyancy > 0) {
             this.applyBuoyancyForce();
         }
         
-        // Apply Vorticity Confinement (re-inject turbulence lost to diffusion/advection)
-        if (this.turbulenceStrength > 0) {
-            this.applyVorticityConfinement();
-        }
-        
-        // Diffuse velocity
-        this.diffuseField(1, this.horizontalVelocity, this.previousHorizontalVelocity, this.viscosity);
-        this.diffuseField(2, this.verticalVelocity, this.previousVerticalVelocity, this.viscosity);
-        
-        // --- 2. Projection 1 (Remove divergence from V_diffused) ---
-        
-        // Vprev = V
-        this.previousHorizontalVelocity.set(this.horizontalVelocity);
-        this.previousVerticalVelocity.set(this.verticalVelocity);
+        // 3. Solve velocity field (diffusion → projection → advection → projection)
+        this.diffuseField(1, this.previousHorizontalVelocity, this.horizontalVelocity, this.viscosity);
+        this.diffuseField(2, this.previousVerticalVelocity, this.verticalVelocity, this.viscosity);
         
         this.enforceIncompressibility(
+            this.previousHorizontalVelocity, 
+            this.previousVerticalVelocity,
             this.horizontalVelocity, 
-            this.verticalVelocity,
-            this.previousHorizontalVelocity, // Pressure storage
-            this.previousVerticalVelocity    // Divergence storage
+            this.verticalVelocity
         );
         
-        // --- 3. Advection (Move velocity along itself) ---
-        
-        // Vprev = V_projected_1
-        this.previousHorizontalVelocity.set(this.horizontalVelocity);
-        this.previousVerticalVelocity.set(this.verticalVelocity);
-
         this.advectField(1, this.horizontalVelocity, this.previousHorizontalVelocity,
-                         this.previousHorizontalVelocity, this.previousVerticalVelocity);
+                        this.previousHorizontalVelocity, this.previousVerticalVelocity);
         this.advectField(2, this.verticalVelocity, this.previousVerticalVelocity,
-                         this.previousHorizontalVelocity, this.previousVerticalVelocity);
-        
-        // --- 4. Projection 2 (Remove divergence from V_advected) ---
+                        this.previousHorizontalVelocity, this.previousVerticalVelocity);
         
         this.enforceIncompressibility(
             this.horizontalVelocity, 
             this.verticalVelocity,
-            this.previousHorizontalVelocity, // Pressure storage
-            this.previousVerticalVelocity    // Divergence storage
+            this.previousHorizontalVelocity, 
+            this.previousVerticalVelocity
         );
         
-        // --- 5. Scalar Fields (Temperature and Density) ---
-        
-        // Temp: Diffuse & Advect
-        this.previousTemperature.set(this.temperature);
-        this.diffuseField(0, this.temperature, this.previousTemperature, this.diffusion);
-        this.advectField(0, this.temperature, this.previousTemperature, 
-                         this.horizontalVelocity, this.verticalVelocity);
-
-        // Density: Diffuse & Advect
-        this.previousDensity.set(this.density);
-        this.diffuseField(0, this.density, this.previousDensity, this.diffusion);
+        // 4. Solve density field
+        this.diffuseField(0, this.previousDensity, this.density, this.diffusion);
         this.advectField(0, this.density, this.previousDensity,
-                         this.horizontalVelocity, this.verticalVelocity);
+                        this.horizontalVelocity, this.verticalVelocity);
         
-        // --- 6. Decay ---
+        // 5. Apply natural decay
         this.applyDecay();
     }
     
@@ -140,86 +104,17 @@ class Fluid {
     }
     
     /**
-     * Applies upward force proportional to temperature AND density (simplified Boussinesq).
+     * Applies upward force proportional to temperature (hot air rises).
      */
     applyBuoyancyForce() {
-        // Density factor (for smoke/fuel lift, typically negative)
-        const alpha = 0.0001; 
-        // Temperature factor (for heat lift, typically positive)
-        const beta = this.buoyancy; 
-        
-        // Loop over the inner, simulated grid cells
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
-                const i = getGridIndex(x, y);
-                
-                // Buoyancy force = (Temp * beta) - (Density * alpha)
-                // Negative sign is needed because screen Y increases downward
-                const force = -(this.temperature[i] * beta - this.density[i] * alpha);
-                
-                this.verticalVelocity[i] += force * this.timeStep;
-            }
-        }
-    }
-    
-    /**
-     * Calculates the curl (vorticity) and applies a perpendicular force 
-     * to re-inject turbulence, countering numerical damping.
-     */
-    applyVorticityConfinement() {
-        const curl = this.vorticity;
-        const normX = this.curlForceX; // Used to store normalized curl gradient (N vector)
-        const normY = this.curlForceY; // Used to store normalized curl gradient (N vector)
-        
-        // Grid cell size in world space (assuming a unit size of 1/GRID_SIZE)
-        const h = 1.0 / GRID_SIZE; 
-        
-        // 1. Calculate Curl (Vorticity) w = dv/dx - du/dy
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
-                const i = getGridIndex(x, y);
-                
-                // Central differencing for derivatives
-                const du_dy = (this.horizontalVelocity[getGridIndex(x, y + 1)] - this.horizontalVelocity[getGridIndex(x, y - 1)]) / (2 * h);
-                const dv_dx = (this.verticalVelocity[getGridIndex(x + 1, y)] - this.verticalVelocity[getGridIndex(x - 1, y)]) / (2 * h);
-                
-                curl[i] = dv_dx - du_dy;
-            }
-        }
-        
-        // 2. Calculate the "N" vector (Normalized Gradient of Curl Magnitude) N = grad(|w|) / |grad(|w|)|
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
-                const i = getGridIndex(x, y);
-                
-                // Central differencing for the gradient of |curl|
-                const abs_curl_x = (Math.abs(curl[getGridIndex(x + 1, y)]) - Math.abs(curl[getGridIndex(x - 1, y)])) / (2 * h);
-                const abs_curl_y = (Math.abs(curl[getGridIndex(x, y + 1)]) - Math.abs(curl[getGridIndex(x, y - 1)])) / (2 * h);
-                
-                // Magnitude of the gradient
-                let magnitude = Math.sqrt(abs_curl_x * abs_curl_x + abs_curl_y * abs_curl_y) + 1e-30; 
-                
-                // Normalize N
-                normX[i] = abs_curl_x / magnitude;
-                normY[i] = abs_curl_y / magnitude;
-            }
-        }
-        
-        // 3. Apply Confinement Force (F = N x w)
         for (let i = 0; i < this.gridSize; i++) {
-            // Force is perpendicular to N and proportional to curl magnitude
-            // Fx = Ny * w * strength
-            const forceX = normY[i] * curl[i] * this.turbulenceStrength; 
-            // Fy = -Nx * w * strength
-            const forceY = -normX[i] * curl[i] * this.turbulenceStrength; 
+            const heatAmount = this.temperature[i];
             
-            // Add force to velocity field
-            this.horizontalVelocity[i] += forceX * this.timeStep;
-            this.verticalVelocity[i] += forceY * this.timeStep;
+            if (heatAmount > 0) {
+                // Negative Y is upward in screen coordinates
+                this.verticalVelocity[i] -= heatAmount * this.buoyancy;
+            }
         }
-        
-        this.setBoundaryConditions(1, this.horizontalVelocity);
-        this.setBoundaryConditions(2, this.verticalVelocity);
     }
     
     /**
@@ -228,14 +123,14 @@ class Fluid {
      */
     applyDecay() {
         for (let i = 0; i < this.gridSize; i++) {
-            // Velocity friction (dampens flow)
+            // Velocity friction (now controllable)
             this.horizontalVelocity[i] *= this.velocityDamping;
             this.verticalVelocity[i] *= this.velocityDamping;
             
-            // Density fade (prevents smoke/dye from filling the screen)
+            // Density fade (now controllable)
             this.density[i] *= this.densityFade;
             
-            // Temperature cooling (critical for defining the flame shape)
+            // Temperature cooling
             if (this.buoyancy > 0) {
                 this.temperature[i] *= this.coolingRate;
             } else {
@@ -244,56 +139,49 @@ class Fluid {
         }
     }
     
-    // --- Jos Stam's Stable Fluids Core Methods ---
-
     /**
-     * Diffuses a field (spreads values to neighbors). Solved iteratively.
+     * Diffuses a field (spreads values to neighbors).
      */
     diffuseField(boundaryType, target, source, diffusionRate) {
-        // Pre-calculate factor A based on the standard Stable Fluids formulation
-        const diffusionFactor = this.timeStep * diffusionRate * (GRID_SIZE) * (GRID_SIZE); 
-        // Factor C is used for the Gauss-Seidel relaxation (1 + 6 * A)
+        const diffusionFactor = this.timeStep * diffusionRate * (GRID_SIZE - 2) * (GRID_SIZE - 2);
         this.solveLinearSystem(boundaryType, target, source, diffusionFactor, 1 + 6 * diffusionFactor);
     }
     
     /**
-     * Advects a field (moves values along velocity field using semi-Lagrangian).
+     * Advects a field (moves values along velocity field).
      */
     advectField(boundaryType, target, source, velocityX, velocityY) {
-        // Time scaling factor for the advection distance
-        const timeScale = this.timeStep * GRID_SIZE; 
+        const timeScaleX = this.timeStep * (GRID_SIZE - 2);
+        const timeScaleY = this.timeStep * (GRID_SIZE - 2);
         
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
                 const index = getGridIndex(x, y);
                 
-                // Trace particle backward in time: p(t-dt) = p(t) - V(p(t)) * dt
-                let sourceX = x - timeScale * velocityX[index];
-                let sourceY = y - timeScale * velocityY[index];
+                // Trace particle backward in time
+                let sourceX = x - timeScaleX * velocityX[index];
+                let sourceY = y - timeScaleY * velocityY[index];
                 
-                // Clamp to valid grid range (excluding boundary cells for interpolation)
+                // Clamp to valid grid range
                 sourceX = constrain(sourceX, 0.5, GRID_SIZE + 0.5);
                 sourceY = constrain(sourceY, 0.5, GRID_SIZE + 0.5);
                 
-                // Bilinear interpolation indices
+                // Bilinear interpolation
                 const x0 = Math.floor(sourceX);
                 const x1 = x0 + 1;
                 const y0 = Math.floor(sourceY);
                 const y1 = y0 + 1;
                 
-                // Interpolation weights (x axis)
                 const weightX1 = sourceX - x0;
                 const weightX0 = 1.0 - weightX1;
-                // Interpolation weights (y axis)
                 const weightY1 = sourceY - y0;
                 const weightY0 = 1.0 - weightY1;
                 
-                // Bilinear Interpolation calculation
                 target[index] = 
                     weightX0 * (weightY0 * source[getGridIndex(x0, y0)] + 
-                                weightY1 * source[getGridIndex(x0, y1)]) +
+                               weightY1 * source[getGridIndex(x0, y1)]) +
                     weightX1 * (weightY0 * source[getGridIndex(x1, y0)] + 
-                                weightY1 * source[getGridIndex(x1, y1)]);
+                               weightY1 * source[getGridIndex(x1, y1)]);
             }
         }
         
@@ -301,37 +189,33 @@ class Fluid {
     }
     
     /**
-     * Projects velocity field to be divergence-free (incompressible) using pressure.
-     * Solved iteratively (part of the core stable fluids).
+     * Projects velocity field to be divergence-free (incompressible).
+     * This is the heart of the stable fluids algorithm.
      */
     enforceIncompressibility(velocityX, velocityY, pressure, divergence) {
-        // 1. Compute Divergence (div V = partial_u/partial_x + partial_v/partial_y)
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
+        // Compute divergence
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
                 const index = getGridIndex(x, y);
                 
-                // Divergence (D = -h * div V) using central differencing
                 divergence[index] = -0.5 * (
                     velocityX[getGridIndex(x + 1, y)] - velocityX[getGridIndex(x - 1, y)] +
                     velocityY[getGridIndex(x, y + 1)] - velocityY[getGridIndex(x, y - 1)]
-                ) * GRID_SIZE; // Multiply by grid size to account for cell spacing
+                ) / GRID_SIZE;
                 
-                pressure[index] = 0; // Initialize pressure to zero
+                pressure[index] = 0;
             }
         }
         
         this.setBoundaryConditions(0, divergence);
         this.setBoundaryConditions(0, pressure);
+        this.solveLinearSystem(0, pressure, divergence, 1, 6);
         
-        // 2. Solve Poisson Equation for Pressure (p = div V)
-        this.solveLinearSystem(0, pressure, divergence, 1, 6); // 1 and 6 are standard factors
-        
-        // 3. Subtract Pressure Gradient from Velocity (V = V - grad p)
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            for (let x = 1; x < GRID_SIZE + 1; x++) {
+        // Subtract pressure gradient from velocity
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            for (let x = 1; x < GRID_SIZE - 1; x++) {
                 const index = getGridIndex(x, y);
                 
-                // Subtract pressure gradient (grad P) using central differencing
                 velocityX[index] -= 0.5 * (
                     pressure[getGridIndex(x + 1, y)] - pressure[getGridIndex(x - 1, y)]
                 ) * GRID_SIZE;
@@ -347,18 +231,16 @@ class Fluid {
     }
     
     /**
-     * Solves a linear system Ax = b using Gauss-Seidel relaxation (iterative solver).
+     * Solves linear system using Gauss-Seidel relaxation.
      */
     solveLinearSystem(boundaryType, target, source, factorA, factorC) {
         const inverseFactor = 1.0 / factorC;
-        const iterations = SOLVER_ITERATIONS || 4; // Use global const SOLVER_ITERATIONS
         
-        for (let iteration = 0; iteration < iterations; iteration++) {
-            for (let y = 1; y < GRID_SIZE + 1; y++) {
-                for (let x = 1; x < GRID_SIZE + 1; x++) {
+        for (let iteration = 0; iteration < SOLVER_ITERATIONS; iteration++) {
+            for (let y = 1; y < GRID_SIZE - 1; y++) {
+                for (let x = 1; x < GRID_SIZE - 1; x++) {
                     const index = getGridIndex(x, y);
                     
-                    // Gauss-Seidel update: x_ij = (b_ij + A * sum(x_neighbors)) / C
                     target[index] = (
                         source[index] +
                         factorA * (
@@ -376,34 +258,48 @@ class Fluid {
     }
     
     /**
-     * Sets boundary conditions for the field (Handles no-slip/no-through boundaries).
+     * Sets boundary conditions for the field.
+     * Type 1: horizontal velocity (negate at left/right walls)
+     * Type 2: vertical velocity (negate at top/bottom walls)
+     * Type 0: scalar field (copy from adjacent cell)
      */
     setBoundaryConditions(boundaryType, field) {
-        // Helper to determine sign for boundary conditions
-        const signX = boundaryType === 1 ? -1 : 1;
-        const signY = boundaryType === 2 ? -1 : 1;
-        
         // Top and bottom edges
-        for (let x = 1; x < GRID_SIZE + 1; x++) {
-            field[getGridIndex(x, 0)] = signY * field[getGridIndex(x, 1)];
-            field[getGridIndex(x, GRID_SIZE + 1)] = signY * field[getGridIndex(x, GRID_SIZE)];
+        for (let x = 1; x < GRID_SIZE - 1; x++) {
+            field[getGridIndex(x, 0)] = 
+                boundaryType === 2 ? -field[getGridIndex(x, 1)] : field[getGridIndex(x, 1)];
+            field[getGridIndex(x, GRID_SIZE - 1)] = 
+                boundaryType === 2 ? -field[getGridIndex(x, GRID_SIZE - 2)] : field[getGridIndex(x, GRID_SIZE - 2)];
         }
         
         // Left and right edges
-        for (let y = 1; y < GRID_SIZE + 1; y++) {
-            field[getGridIndex(0, y)] = signX * field[getGridIndex(1, y)];
-            field[getGridIndex(GRID_SIZE + 1, y)] = signX * field[getGridIndex(GRID_SIZE, y)];
+        for (let y = 1; y < GRID_SIZE - 1; y++) {
+            field[getGridIndex(0, y)] = 
+                boundaryType === 1 ? -field[getGridIndex(1, y)] : field[getGridIndex(1, y)];
+            field[getGridIndex(GRID_SIZE - 1, y)] = 
+                boundaryType === 1 ? -field[getGridIndex(GRID_SIZE - 2, y)] : field[getGridIndex(GRID_SIZE - 2, y)];
         }
         
         // Corners (average of adjacent cells)
-        field[getGridIndex(0, 0)] = 0.5 * (field[getGridIndex(1, 0)] + field[getGridIndex(0, 1)]);
-        field[getGridIndex(0, GRID_SIZE + 1)] = 0.5 * (field[getGridIndex(1, GRID_SIZE + 1)] + field[getGridIndex(0, GRID_SIZE)]);
-        field[getGridIndex(GRID_SIZE + 1, 0)] = 0.5 * (field[getGridIndex(GRID_SIZE, 0)] + field[getGridIndex(GRID_SIZE + 1, 1)]);
-        field[getGridIndex(GRID_SIZE + 1, GRID_SIZE + 1)] = 0.5 * (field[getGridIndex(GRID_SIZE, GRID_SIZE + 1)] + field[getGridIndex(GRID_SIZE + 1, GRID_SIZE)]);
+        field[getGridIndex(0, 0)] = 0.5 * (
+            field[getGridIndex(1, 0)] + field[getGridIndex(0, 1)]
+        );
+        field[getGridIndex(0, GRID_SIZE - 1)] = 0.5 * (
+            field[getGridIndex(1, GRID_SIZE - 1)] + field[getGridIndex(0, GRID_SIZE - 2)]
+        );
+        field[getGridIndex(GRID_SIZE - 1, 0)] = 0.5 * (
+            field[getGridIndex(GRID_SIZE - 2, 0)] + field[getGridIndex(GRID_SIZE - 1, 1)]
+        );
+        field[getGridIndex(GRID_SIZE - 1, GRID_SIZE - 1)] = 0.5 * (
+            field[getGridIndex(GRID_SIZE - 2, GRID_SIZE - 1)] + field[getGridIndex(GRID_SIZE - 1, GRID_SIZE - 2)]
+        );
     }
 }
 
-// Helper function for grid indexing (needed globally for sketch.js)
+/**
+ * Converts 2D grid coordinates to 1D array index.
+ * Grid has padding of 1 cell on each side for boundary conditions.
+ */
 function getGridIndex(x, y) {
     x = constrain(x, 0, GRID_SIZE + 1);
     y = constrain(y, 0, GRID_SIZE + 1);
