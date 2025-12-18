@@ -1,7 +1,3 @@
-/**
- * Fire.js - Combustion Simulation
- * Updated with Vorticity Confinement for "Swirl"
- */
 
 class Fire extends FluidBase {
     constructor(n, dt, diffusion, viscosity) {
@@ -31,9 +27,7 @@ class Fire extends FluidBase {
         this.ambientCooling = 0.98;    
     }
 
-    /**
-     * Main simulation step for fire
-     */
+
     step(params) {
         // 1. COMBUSTION REACTION 
         this.combustion(params);
@@ -47,8 +41,7 @@ class Fire extends FluidBase {
             this.vY[i] -= this.temperature[i] * params.buoyancy * 0.0003;
         }
 
-        // === NEW: APPLY SWIRL (Vorticity) ===
-        // We use a high default strength if not provided to force the curl
+        // APPLY SWIRL (Vorticity) ===
         if (params.vorticity > 0) {
             this.applyVorticityConfinement(params.vorticity);
         }
@@ -74,9 +67,7 @@ class Fire extends FluidBase {
         }
     }
 
-    /**
-     * === NEW FUNCTION: Calculates and applies spin ===
-     */
+   // Calculates and applies spin 
     applyVorticityConfinement(strength) {
         // Calculate curl (vorticity)
         for (let j = 1; j <= this.N; j++) {
@@ -105,10 +96,7 @@ class Fire extends FluidBase {
         }
     }
 
-    // ... (Keep combustion, diffuseHeat, addFuel, addTemperature, getIntensity same as before) ...
-    
     combustion(params) {
-       // Paste your original combustion code here (no changes needed)
        for (let j = 1; j <= this.N; j++) {
             for (let i = 1; i <= this.N; i++) {
                 const idx = this.idx(i, j);
@@ -131,7 +119,6 @@ class Fire extends FluidBase {
     }
 
     diffuseHeat(iterations) {
-        // Paste your original diffuseHeat code here (no changes needed)
         for (let i = 0; i < this.size; i++) {
             this.tempOld[i] = this.temperature[i];
         }

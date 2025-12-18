@@ -1,10 +1,4 @@
-/**
- * sketch.js - The Controller
- * Manages UI, mode switching, and coordinates simulations.
- */
-
-// ===== SIMULATION CONFIGURATION =====
-const GRID_SIZE = 200;
+const GRID_SIZE = 164;
 const CELL_SCALE = 3;
 const SOLVER_ITERATIONS = 20;
 
@@ -78,11 +72,11 @@ const presets = {
         fireFuelAmount: 0.4,
         fireIgnitionTemp: 0.4,
         fireMouseForce: 0.1,
-        fireVorticity: 0.6,    // Good swirl
-        velocityDamping: 0.05, // Let it flow easier
+        fireVorticity: 0.6,    
+        velocityDamping: 0.05, 
         densityFade: 0.06,
-        buoyancy: 0.25,        // Slightly less rise
-        coolingRate: 0.2      // Higher cooling so it stops before top!
+        buoyancy: 0.25,        
+        coolingRate: 0.2      
     }
 };
 
@@ -194,13 +188,9 @@ function processMouseInput() {
                         const dist = Math.sqrt(i*i + j*j);
                         const weight = 1.0 - (dist / r);
                         
-                        // Add lots of fuel everywhere
+
                         simulation.addFuel(gx + i, gy + j, actualFuel * weight);
-                        
-                        // Add ignition heat broadly (not just center)
                         simulation.addTemperature(gx + i, gy + j, actualIgnition * weight * 0.7);
-                        
-                        // Add velocity
                         simulation.addVelocity(gx + i, gy + j, 
                             mouseDeltaX * actualForce, 
                             mouseDeltaY * actualForce);
@@ -228,17 +218,13 @@ function switchMode(newMode) {
         createSimulation(newMode);
         applyPreset(newMode);
         
-        // Adjust brush size based on mode
         if (newMode === 'fire') {
             parameters.brushRadius = 8;  // Larger brush for fire
         } else {
             parameters.brushRadius = 3;  // Standard brush for fluid
         }
-        
-        // Update GUI visibility
+
         updateGUIVisibility();
-        
-        // Update all GUI controllers to reflect new values
         for (let i in gui.__folders) {
             for (let j in gui.__folders[i].__controllers) {
                 gui.__folders[i].__controllers[j].updateDisplay();
@@ -253,49 +239,49 @@ function initializeGUI() {
     gui = new dat.GUI();
     
     // === MODE SWITCHER ===
-    const modeFolder = gui.addFolder('🔥💧 MODE');
+    const modeFolder = gui.addFolder(' MODE');
     modeFolder.add(parameters, 'mode', ['fluid', 'fire'])
         .name("Simulation Type")
         .onChange(switchMode);
     modeFolder.open();
 
     // === PHYSICS ===
-    const physicsFolder = gui.addFolder('⚙️ Physics');
+    const physicsFolder = gui.addFolder(' Physics');
     physicsFolder.add(parameters, 'viscosity', 0, 1).name("Viscosity");
     physicsFolder.add(parameters, 'buoyancy', 0, 1).name("Buoyancy (Rise)");
     
     // === FLUID CONTROLS ===
-    window.fluidFolder = gui.addFolder('💧 Fluid Controls');
+    window.fluidFolder = gui.addFolder(' Fluid Controls');
     fluidFolder.add(parameters, 'fluidVorticity', 0, 1).name("Vorticity (Swirl)");
     fluidFolder.add(parameters, 'fluidDyeAmount', 0, 1).name("Dye Amount");
     fluidFolder.add(parameters, 'fluidMouseForce', 0, 1).name("Mouse Force");
     
     // === FIRE CONTROLS ===
-    window.fireFolder = gui.addFolder('🔥 Fire Controls');
+    window.fireFolder = gui.addFolder(' Fire Controls');
     fireFolder.add(parameters, 'fireFuelAmount', 0, 1).name("Fuel Amount");
     fireFolder.add(parameters, 'fireIgnitionTemp', 0, 1).name("Ignition Heat");
     fireFolder.add(parameters, 'fireMouseForce', 0, 1).name("Mouse Force");
     fireFolder.add(parameters, 'fireVorticity', 0, 1).name("Vorticity (Turbulence)");
 
     // === DECAY ===
-    const decayFolder = gui.addFolder('⏱️ Decay');
+    const decayFolder = gui.addFolder(' Decay');
     decayFolder.add(parameters, 'velocityDamping', 0, 1).name("Velocity Damping");
     decayFolder.add(parameters, 'densityFade', 0, 1).name("Density Fade");
     decayFolder.add(parameters, 'coolingRate', 0, 1).name("Cooling Rate");
 
     // === INTERACTION ===
-    const inputFolder = gui.addFolder('🖱️ Interaction');
+    const inputFolder = gui.addFolder(' Interaction');
     inputFolder.add(parameters, 'brushRadius', 1, 15).step(1).name("Brush Size");
     inputFolder.add(parameters, 'continuousInput').name("Continuous Input");
 
     // === VISUALS ===
-    const visualFolder = gui.addFolder('🎨 Visuals');
+    const visualFolder = gui.addFolder(' Visuals');
     visualFolder.addColor(parameters, 'fluidColor').name("Fluid Color");
     visualFolder.addColor(parameters, 'backgroundColor').name("Background");
     visualFolder.add(parameters, 'showVelocityVectors').name("Show Vectors");
 
     // === RESET ===
-    gui.add(parameters, 'resetSimulation').name("🔄 Reset Simulation");
+    gui.add(parameters, 'resetSimulation').name(" Reset Simulation");
     
     updateGUIVisibility();
 }
@@ -320,7 +306,6 @@ function applyPreset(name) {
         }
     }
     
-    // Update all GUI controllers
     for (let i in gui.__folders) {
         for (let j in gui.__folders[i].__controllers) {
             gui.__folders[i].__controllers[j].updateDisplay();

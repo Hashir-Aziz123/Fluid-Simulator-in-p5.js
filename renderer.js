@@ -1,8 +1,3 @@
-/**
- * Renderer.js - Visual Artist
- * Separate rendering paths for Fluid and Fire simulations.
- */
-
 class SimulationRenderer {
     constructor(p5Context, n, scale) {
         this.p = p5Context;
@@ -11,9 +6,8 @@ class SimulationRenderer {
         this.buffer = this.p.createImage(n, n);
     }
 
-    /**
-     * Render fluid simulation (density-based)
-     */
+
+    // Render fluid simulation (density-based)
     renderFluid(fluid, params) {
         this.buffer.loadPixels();
 
@@ -24,7 +18,7 @@ class SimulationRenderer {
                 
                 const pxIdx = 4 * ((x - 1) + (y - 1) * this.N);
 
-                // Simple: Fluid color with density-based alpha
+                // Fluid color with density-based alpha
                 const [r, g, b] = params.fluidColor;
                 const alpha = this.p.constrain(density * 3, 0, 255);
 
@@ -39,9 +33,9 @@ class SimulationRenderer {
         this.drawBuffer(params);
     }
 
-    /**
-     * Render fire simulation (temperature + smoke based)
-     */
+
+    // Render fire simulation (temperature + smoke based)
+
     renderFire(fire, params) {
         this.buffer.loadPixels();
 
@@ -63,22 +57,20 @@ class SimulationRenderer {
         this.drawBuffer(params);
     }
 
-    /**
-     * Fire color mapping based on temperature and smoke
-     */
+
+    //  Fire color mapping based on temperature and smoke
     getFireColor(intensity) {
         const temp = intensity.temperature;
         const smoke = intensity.smoke;
         const reaction = intensity.reaction;
 
-        // Normalize values with better scaling
-        const t = Math.min(temp / 150, 1.0);      // Lower temp threshold
-        const s = Math.min(smoke / 200, 1.0);      // Lower smoke threshold
-        const r = Math.min(reaction * 5, 1.0);     // Reaction visibility
+        const t = Math.min(temp / 150, 1.0);      
+        const s = Math.min(smoke / 200, 1.0);      
+        const r = Math.min(reaction * 5, 1.0);     
 
         let red, green, blue, alpha;
 
-        // ACTIVE BURNING - Temperature-based gradient
+        // Temperature-based gradient
         if (t > 0.8) {
             // White-hot core (very hot)
             red = 255;
@@ -105,7 +97,7 @@ class SimulationRenderer {
             green = (t - 0.08) / 0.12 * 50;
             blue = 0;
         } else {
-            // SMOKE (low temp, potentially high smoke)
+            // Smoke (low temp, potentially high smoke)
             const smokeIntensity = s * 80;
             red = smokeIntensity;
             green = smokeIntensity;
@@ -113,15 +105,13 @@ class SimulationRenderer {
         }
 
         // Alpha: Visible if hot OR smoky
-        // Increase visibility overall
         alpha = Math.min((t * 300) + (s * 150), 255);
 
         return [red, green, blue, alpha];
     }
 
-    /**
-     * Draw the buffer to canvas with blend mode
-     */
+ 
+    //Draw the buffer to canvas with blend mode
     drawBuffer(params) {
         this.p.push();
         
@@ -135,9 +125,7 @@ class SimulationRenderer {
         this.p.pop();
     }
 
-    /**
-     * Draw velocity vectors (works for both Fluid and Fire)
-     */
+    // Draw velocity vectors (works for both Fluid and Fire)
     drawVectors(simulation, params) {
         const step = params.velocityVectorDensity;
         this.p.stroke(255, 150);

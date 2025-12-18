@@ -1,9 +1,3 @@
-/**
- * FluidBase.js - Abstract Base Class
- * Contains shared velocity solver and grid utilities for both Fluid and Fire.
- * DO NOT instantiate directly - use Fluid or Fire subclasses.
- */
-
 class FluidBase {
     constructor(n, dt, diffusion, viscosity) {
         if (this.constructor === FluidBase) {
@@ -19,7 +13,6 @@ class FluidBase {
         this.size = (n + 2) * (n + 2);
 
         // === SHARED VELOCITY FIELDS ===
-        // Both Fluid and Fire need velocity
         this.vX = new Float32Array(this.size);
         this.vY = new Float32Array(this.size);
         this.vXOld = new Float32Array(this.size);
@@ -30,23 +23,13 @@ class FluidBase {
         this.divergence = new Float32Array(this.size);
     }
 
-    /**
-     * Map 2D coordinates to 1D array index
-     */
+    // Map 2D coordinates to 1D array index
     idx(x, y) {
         const nx = Math.max(0, Math.min(x, this.N + 1));
         const ny = Math.max(0, Math.min(y, this.N + 1));
         return nx + (this.N + 2) * ny;
     }
 
-    // ========================================
-    // VELOCITY SOLVER (Shared by both)
-    // ========================================
-
-    /**
-     * Solves the velocity field for one timestep
-     * @param {number} iterations - Solver iterations for stability
-     */
     solveVelocity(iterations) {
         // Diffuse velocity
         this.diffuse(1, this.vXOld, this.vX, this.viscosity, iterations);
@@ -63,17 +46,13 @@ class FluidBase {
         this.project(this.vX, this.vY, this.vXOld, this.vYOld, iterations);
     }
 
-    /**
-     * Diffusion step - spreads quantity via viscosity/diffusion
-     */
+    // Diffusion step - spreads quantity via viscosity/diffusion
     diffuse(b, x, x0, diff, iter) {
         const a = this.dt * diff * this.N * this.N;
         this.solveLinearSystem(b, x, x0, a, 1 + 4 * a, iter);
     }
 
-    /**
-     * Advection step - moves quantity along velocity field
-     */
+    // Advection step - moves quantity along velocity field
     advect(b, d, d0, vX, vY) {
         const dt0 = this.dt * this.N;
         
@@ -108,9 +87,7 @@ class FluidBase {
         this.setBoundary(b, d);
     }
 
-    /**
-     * Projection step - makes velocity field divergence-free (incompressible)
-     */
+    // Projection step - makes velocity field divergence-free
     project(vX, vY, p, div, iter) {
         // Calculate divergence
         for (let j = 1; j <= this.N; j++) {
@@ -141,9 +118,7 @@ class FluidBase {
         this.setBoundary(2, vY);
     }
 
-    /**
-     * Gauss-Seidel iterative solver
-     */
+    // Gauss-Seidel iterative solver
     solveLinearSystem(b, x, x0, a, c, iter) {
         const invC = 1.0 / c;
         
@@ -185,18 +160,14 @@ class FluidBase {
         x[this.idx(this.N + 1, this.N + 1)] = 0.5 * (x[this.idx(this.N, this.N + 1)] + x[this.idx(this.N + 1, this.N)]);
     }
 
-    /**
-     * Add velocity at a point (shared interaction)
-     */
+
+    // Add velocity at a point (user interaction)
     addVelocity(x, y, vx, vy) {
         const i = this.idx(x, y);
         this.vX[i] += vx;
         this.vY[i] += vy;
     }
 
-    /**
-     * Abstract method - must be implemented by subclasses
-     */
     step(params) {
         throw new Error("step() must be implemented by subclass");
     }

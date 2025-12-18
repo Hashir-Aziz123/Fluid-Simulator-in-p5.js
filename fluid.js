@@ -1,8 +1,3 @@
-/**
- * Fluid.js - Water/Smoke Simulation
- * Extends FluidBase with density field and vorticity effects.
- */
-
 class Fluid extends FluidBase {
     constructor(n, dt, diffusion, viscosity) {
         super(n, dt, diffusion, viscosity);
@@ -11,13 +6,9 @@ class Fluid extends FluidBase {
         this.density = new Float32Array(this.size);
         this.densityOld = new Float32Array(this.size);
         
-        // Vorticity buffer for swirl effects
         this.curl = new Float32Array(this.size);
     }
 
-    /**
-     * Main simulation step for fluid
-     */
     step(params) {
         // 1. Apply vorticity confinement (swirl effect)
         if (params.vorticity > 0) {
@@ -39,9 +30,7 @@ class Fluid extends FluidBase {
         }
     }
 
-    /**
-     * Vorticity Confinement - adds rotational energy to prevent numerical dissipation
-     */
+    // Vorticity Confinement - adds rotational energy to prevent numerical dissipation
     applyVorticityConfinement(strength) {
         // Calculate curl (vorticity) at each cell
         for (let j = 1; j <= this.N; j++) {
@@ -73,9 +62,8 @@ class Fluid extends FluidBase {
         }
     }
 
-    /**
-     * Add density at a point (user interaction)
-     */
+
+    // Add density at a point (user interaction)
     addDensity(x, y, amount) {
         this.density[this.idx(x, y)] += amount;
     }
